@@ -1,9 +1,30 @@
 @extends('layouts.app')
 
 @section('content')
-  <div class="grid grid-cols-12 gap-4 md:gap-6">
-    <div class="col-span-12 space-y-6 xl:col-span-12">
-      <x-ecommerce.ecommerce-metrics />
+    <x-common.page-breadcrumb pageTitle="Dashboard" />
+
+    <div class="space-y-6">
+        @if (session('status'))
+            <x-ui.alert variant="success" :message="session('status')" />
+        @endif
+
+        @include('dashboard.partials.hero')
+        @include('dashboard.partials.summary-cards')
+        @include('dashboard.partials.quick-actions')
+
+        <section class="grid gap-6 xl:grid-cols-[1.28fr_0.72fr]">
+            <div class="space-y-6">
+                @include('dashboard.partials.main-panel', ['panel' => $mainPanel])
+
+                @if (! empty($queuePanel))
+                    @include('dashboard.partials.queue-panel', ['panel' => $queuePanel])
+                @endif
+            </div>
+
+            <div class="space-y-6">
+                @include('dashboard.partials.attention-panel', ['panel' => $attentionPanel])
+                @include('dashboard.partials.notifications-panel', ['panel' => $notificationsPanel])
+            </div>
+        </section>
     </div>
-  </div>
 @endsection

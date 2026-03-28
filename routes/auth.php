@@ -38,7 +38,8 @@ Route::middleware(['auth'])->group(function () {
     Route::delete('settings/profile', [Settings\ProfileController::class, 'destroy'])->name('settings.profile.destroy');
     Route::get('settings/password', [Settings\PasswordController::class, 'edit'])->name('settings.password.edit');
     Route::put('settings/password', [Settings\PasswordController::class, 'update'])->name('settings.password.update');
+    Route::get('settings/sessions', [Settings\SessionController::class, 'index'])->name('settings.sessions.index');
+    Route::delete('settings/sessions/{sessionId}', [Settings\SessionController::class, 'destroy'])->name('settings.sessions.destroy');
 });
 
 Route::post('logout', [LoginController::class, 'destroy'])->name('logout');
-

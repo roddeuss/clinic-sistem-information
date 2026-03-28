@@ -2,53 +2,131 @@
 
 namespace App\Helpers;
 
+use App\Models\Menu;
+use App\Models\MenuCategory;
+use Illuminate\Support\Arr;
+use Illuminate\Support\Str;
+
 class MenuHelper
 {
-    public static function getMainNavItems(): array
-    {
-        return [
-            [
-                'icon' => 'dashboard',
-                'name' => 'Dashboard',
-                'path' => route('dashboard', absolute: false),
-            ],
-        ];
-    }
-
-    public static function getAdministrationItems(): array
-    {
-        return [
-            [
-                'icon' => 'charts',
-                'name' => 'User Management',
-                'subItems' => [
-                    [
-                        'name' => 'Users',
-                        'path' => route('users.index', absolute: false),
-                        'pro' => false
-                    ],
-                ],
-            ],
-        ];
-    }
-
     public static function getMenuGroups(): array
     {
-        return [
-            [
-                'title' => 'Menu',
-                'items' => self::getMainNavItems()
-            ],
-            [
-                'title' => 'Administration',
-                'items' => self::getAdministrationItems()
-            ]
-        ];
+        $user = auth()->user();
+
+        return MenuCategory::query()
+            ->where('is_active', true)
+            ->with([
+                'menus' => fn ($query) => $query
+                    ->whereNull('parent_id')
+                    ->where('is_active', true)
+                    ->with([
+                        'children' => fn ($childQuery) => $childQuery
+                            ->where('is_active', true)
+                            ->orderBy('sort_order')
+                            ->orderBy('title'),
+                    ])
+                    ->orderBy('sort_order')
+                    ->orderBy('title'),
+            ])
+            ->orderBy('sort_order')
+            ->orderBy('name')
+            ->get()
+            ->map(function (MenuCategory $category) use ($user): array {
+                $items = $category->menus
+                    ->map(fn (Menu $menu): ?array => self::transformMenu($menu, $user))
+                    ->filter()
+                    ->values()
+                    ->all();
+
+                return [
+                    'title' => $category->name,
+                    'items' => $items,
+                ];
+            })
+            ->filter(fn (array $group): bool => ! empty($group['items']))
+            ->values()
+            ->all();
     }
 
     public static function isActive($path): bool
     {
         return request()->is(ltrim($path, '/'));
+    }
+
+    private static function transformMenu(Menu $menu, $user): ?array
+    {
+        $children = $menu->children
+            ->map(fn (Menu $child): ?array => self::transformMenu($child, $user))
+            ->filter()
+            ->values()
+            ->all();
+
+        if (! self::canSeeMenu($menu, $user) && $children === []) {
+            return null;
+        }
+
+        $resolved = [
+            'icon' => $menu->icon,
+            'name' => $menu->title,
+        ];
+
+        if ($children !== []) {
+            $resolved['subItems'] = $children;
+        } elseif (! self::hasValidDestination($menu->route_name)) {
+            return null;
+        }
+
+        $resolved['path'] = self::resolvePath($menu->route_name);
+
+        return $resolved;
+    }
+
+    private static function canSeeMenu(Menu $menu, $user): bool
+    {
+        if (! $user) {
+            return false;
+        }
+
+        $permissions = collect(Arr::wrap($menu->permission_name))
+            ->filter(fn (?string $permission): bool => filled($permission))
+            ->values()
+            ->all();
+
+        if ($permissions === []) {
+            return self::hasValidDestination($menu->route_name) || $menu->children->isNotEmpty();
+        }
+
+        if ($user->canAny($permissions)) {
+            return self::hasValidDestination($menu->route_name) || $menu->children->isNotEmpty();
+        }
+
+        return false;
+    }
+
+    private static function hasValidDestination(?string $destination): bool
+    {
+        if ($destination === null) {
+            return false;
+        }
+
+        return self::isDirectPath($destination);
+    }
+
+    private static function resolvePath(?string $destination): string
+    {
+        if (! self::hasValidDestination($destination)) {
+            return '#';
+        }
+
+        if (self::isDirectPath($destination)) {
+            return $destination;
+        }
+        return '#';
+    }
+
+    private static function isDirectPath(string $destination): bool
+    {
+        return Str::startsWith($destination, ['/','#']);
     }
 
     public static function getIconSvg($iconName): string
@@ -67,6 +145,8 @@ class MenuHelper
             'task' => '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path fill-rule="evenodd" clip-rule="evenodd" d="M7.75586 5.50098C7.75586 5.08676 8.09165 4.75098 8.50586 4.75098H18.4985C18.9127 4.75098 19.2485 5.08676 19.2485 5.50098L19.2485 15.4956C19.2485 15.9098 18.9127 16.2456 18.4985 16.2456H8.50586C8.09165 16.2456 7.75586 15.9098 7.75586 15.4956V5.50098ZM8.50586 3.25098C7.26322 3.25098 6.25586 4.25834 6.25586 5.50098V6.26318H5.50195C4.25931 6.26318 3.25195 7.27054 3.25195 8.51318V18.4995C3.25195 19.7422 4.25931 20.7495 5.50195 20.7495H15.4883C16.7309 20.7495 17.7383 19.7421 17.7383 18.4995L17.7383 17.7456H18.4985C19.7411 17.7456 20.7485 16.7382 20.7485 15.4956L20.7485 5.50097C20.7485 4.25833 19.7411 3.25098 18.4985 3.25098H8.50586ZM16.2383 17.7456H8.50586C7.26322 17.7456 6.25586 16.7382 6.25586 15.4956V7.76318H5.50195C5.08774 7.76318 4.75195 8.09897 4.75195 8.51318V18.4995C4.75195 18.9137 5.08774 19.2495 5.50195 19.2495H15.4883C15.9025 19.2495 16.2383 18.9137 16.2383 18.4995L16.2383 17.7456Z" fill="currentColor"></path></svg>',
 
             'forms' => '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path fill-rule="evenodd" clip-rule="evenodd" d="M5.5 3.25C4.25736 3.25 3.25 4.25736 3.25 5.5V18.5C3.25 19.7426 4.25736 20.75 5.5 20.75H18.5001C19.7427 20.75 20.7501 19.7426 20.7501 18.5V5.5C20.7501 4.25736 19.7427 3.25 18.5001 3.25H5.5ZM4.75 5.5C4.75 5.08579 5.08579 4.75 5.5 4.75H18.5001C18.9143 4.75 19.2501 5.08579 19.2501 5.5V18.5C19.2501 18.9142 18.9143 19.25 18.5001 19.25H5.5C5.08579 19.25 4.75 18.9142 4.75 18.5V5.5ZM6.25005 9.7143C6.25005 9.30008 6.58583 8.9643 7.00005 8.9643L17 8.96429C17.4143 8.96429 17.75 9.30008 17.75 9.71429C17.75 10.1285 17.4143 10.4643 17 10.4643L7.00005 10.4643C6.58583 10.4643 6.25005 10.1285 6.25005 9.7143ZM6.25005 14.2857C6.25005 13.8715 6.58583 13.5357 7.00005 13.5357H17C17.4143 13.5357 17.75 13.8715 17.75 14.2857C17.75 14.6999 17.4143 15.0357 17 15.0357H7.00005C6.58583 15.0357 6.25005 14.6999 6.25005 14.2857Z" fill="currentColor"></path></svg>',
+
+            'box' => '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M3.75 8.25L12 12.75L20.25 8.25M12 21V12.75M4.5 7.5L11.4697 3.69725C11.7968 3.51874 12.2032 3.51874 12.5303 3.69725L19.5 7.5C19.8212 7.67528 20.021 8.01211 20.021 8.378L20.021 15.622C20.021 15.9879 19.8212 16.3247 19.5 16.5L12.5303 20.3028C12.2032 20.4813 11.7968 20.4813 11.4697 20.3028L4.5 16.5C4.1788 16.3247 3.979 15.9879 3.979 15.622L3.979 8.378C3.979 8.01211 4.1788 7.67528 4.5 7.5Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>',
 
             'tables' => '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path fill-rule="evenodd" clip-rule="evenodd" d="M3.25 5.5C3.25 4.25736 4.25736 3.25 5.5 3.25H18.5C19.7426 3.25 20.75 4.25736 20.75 5.5V18.5C20.75 19.7426 19.7426 20.75 18.5 20.75H5.5C4.25736 20.75 3.25 19.7426 3.25 18.5V5.5ZM5.5 4.75C5.08579 4.75 4.75 5.08579 4.75 5.5V8.58325L19.25 8.58325V5.5C19.25 5.08579 18.9142 4.75 18.5 4.75H5.5ZM19.25 10.0833H15.416V13.9165H19.25V10.0833ZM13.916 10.0833L10.083 10.0833V13.9165L13.916 13.9165V10.0833ZM8.58301 10.0833H4.75V13.9165H8.58301V10.0833ZM4.75 18.5V15.4165H8.58301V19.25H5.5C5.08579 19.25 4.75 18.9142 4.75 18.5ZM10.083 19.25V15.4165L13.916 15.4165V19.25H10.083ZM15.416 19.25V15.4165H19.25V18.5C19.25 18.9142 18.9142 19.25 18.5 19.25H15.416Z" fill="currentColor"></path></svg>',
 

@@ -48,6 +48,11 @@
         <div>
             <span class="block font-medium text-gray-700 text-theme-sm dark:text-gray-400">{{ Auth::user()->name }}</span>
             <span class="mt-0.5 block text-theme-xs text-gray-500 dark:text-gray-400">{{ Auth::user()->email }}</span>
+            @if (Auth::user()->getRoleNames()->isNotEmpty())
+                <span class="mt-2 inline-flex rounded-full bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-700 dark:bg-white/5 dark:text-gray-300">
+                    {{ config('csi_access.roles.' . Auth::user()->getRoleNames()->first() . '.label', Auth::user()->getRoleNames()->first()) }}
+                </span>
+            @endif
         </div>
 
         <!-- Menu Items -->

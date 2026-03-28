@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Auth;
 
 use App\Http\Controllers\Controller;
+use App\Models\User;
 use Illuminate\Auth\Events\Lockout;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -28,6 +29,18 @@ class LoginController extends Controller
 
         $this->ensureIsNotRateLimited($request);
 
+        $user = User::query()
+            ->where('email', $request->string('email')->lower()->toString())
+            ->first();
+
+        if ($user && ! $user->is_active) {
+            RateLimiter::hit($this->throttleKey($request));
+
+            throw ValidationException::withMessages([
+                'email' => 'Your account is inactive. Please contact an administrator.',
+            ]);
+        }
+
         if (! Auth::attempt($request->only('email', 'password'), $request->boolean('remember'))) {
             RateLimiter::hit($this->throttleKey($request));
 
@@ -39,6 +52,11 @@ class LoginController extends Controller
         RateLimiter::clear($this->throttleKey($request));
 
         $request->session()->regenerate();
+
+        $request->user()?->forceFill([
+            'last_login_at' => now(),
+            'last_login_ip' => $request->ip(),
+        ])->save();
 
         return redirect()->intended(route('dashboard', absolute: false));
     }
@@ -77,4 +95,3 @@ class LoginController extends Controller
         return Str::transliterate(Str::lower($request->string('email')).'|'.$request->ip());
     }
 }
-
